@@ -31,26 +31,7 @@ class MyketPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
     override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         channel = MethodChannel(flutterPluginBinding.flutterEngine.dartExecutor, "myket")
         channel.setMethodCallHandler(this)
-        context = flutterPluginBinding.applicationContext
-    }
-
-    // This static function is optional and equivalent to onAttachedToEngine. It supports the old
-    // pre-Flutter-1.12 Android projects. You are encouraged to continue supporting
-    // plugin registration via this function while apps migrate to use the new Android APIs
-    // post-flutter-1.12 via https://flutter.dev/go/android-project-migration.
-    //
-    // It is encouraged to share logic between onAttachedToEngine and registerWith to keep
-    // them functionally equivalent. Only one of onAttachedToEngine or registerWith will be called
-    // depending on the user's project. onAttachedToEngine or registerWith must both be defined
-    // in the same class.
-    companion object {
-        @JvmStatic
-        fun registerWith(registrar: Registrar) {
-            val channel = MethodChannel(registrar.messenger(), "myket")
-            val myketIapPlugin = MyketPlugin()
-            channel.setMethodCallHandler(myketIapPlugin)
-            myketIapPlugin.context = registrar.activeContext()
-        }
+        context = binding.applicationContext
     }
 
     override fun onMethodCall(call: MethodCall, result: Result) {
@@ -60,43 +41,56 @@ class MyketPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
                 val enableDebugLogging = call.argument<Boolean>("enableDebugLogging")
                 mHelper = IabHelper(context, publicKey)
                 mHelper?.enableDebugLogging(enableDebugLogging == true)
-                mHelper?.startSetup {
-                    result.success(gson.toJson(it, IabResult::class.java))
+                mHelper?.startSetup { setupResult ->
+                    result.success(gson.toJson(setupResult, IabResult::class.java))
                 }
             }
             "launchPurchaseFlow" -> {
                 val sku = call.argument<String>("sku")
                 val payload = call.argument<String>("payload")
-                val onIabPurchaseFinishedListener = IabHelper.OnIabPurchaseFinishedListener { purchaseResult: IabResult, purchase: Purchase? ->
-                    result.success(mapOf("result" to gson.toJson(purchaseResult, IabResult::class.java),
-                            "purchase" to gson.toJson(purchase, Purchase::class.java)))
-                }
-                mHelper?.launchPurchaseFlow(activity, sku, onIabPurchaseFinishedListener, payload)
+                mHelper?.launchPurchaseFlow(activity, sku, IabHelper.OnIabPurchaseFinishedListener { purchaseResult, purchase ->
+                    result.success(
+                        mapOf(
+                            "result" to gson.toJson(purchaseResult, IabResult::class.java),
+                            "purchase" to gson.toJson(purchase, Purchase::class.java)
+                        )
+                    )
+                }, payload)
             }
             "consume" -> {
                 val purchase = gson.fromJson(call.argument<String>("purchase"), Purchase::class.java)
-                mHelper?.consumeAsync(purchase) { p: Purchase?, consumeResult: IabResult ->
-                    result.success(mapOf("result" to gson.toJson(consumeResult, IabResult::class.java),
-                            "purchase" to gson.toJson(p, Purchase::class.java)))
+                mHelper?.consumeAsync(purchase) { consumedPurchase, consumeResult ->
+                    result.success(
+                        mapOf(
+                            "result" to gson.toJson(consumeResult, IabResult::class.java),
+                            "purchase" to gson.toJson(consumedPurchase, Purchase::class.java)
+                        )
+                    )
                 }
             }
             "getPurchase" -> {
                 val sku = call.argument<String>("sku")
                 val querySkuDetails = call.argument<Boolean>("querySkuDetails")
-                mHelper?.queryInventoryAsync(querySkuDetails == true, arrayListOf(sku))
-                { iabResult: IabResult, inventory: Inventory? ->
+                mHelper?.queryInventoryAsync(querySkuDetails == true, arrayListOf(sku)) { iabResult, inventory ->
                     val purchase = inventory?.getPurchase(sku)
-                    result.success(mapOf("result" to gson.toJson(iabResult, IabResult::class.java),
-                            "purchase" to gson.toJson(purchase, Purchase::class.java)))
+                    result.success(
+                        mapOf(
+                            "result" to gson.toJson(iabResult, IabResult::class.java),
+                            "purchase" to gson.toJson(purchase, Purchase::class.java)
+                        )
+                    )
                 }
             }
             "queryInventory" -> {
                 val querySkuDetails = call.argument<Boolean>("querySkuDetails")
                 val skus = call.argument<List<String>>("skus")
-                mHelper?.queryInventoryAsync(querySkuDetails == true, skus)
-                { iabResult: IabResult, inventory: Inventory? ->
-                    result.success(mapOf("result" to gson.toJson(iabResult, IabResult::class.java),
-                            "inventory" to gson.toJson(inventory, Inventory::class.java)))
+                mHelper?.queryInventoryAsync(querySkuDetails == true, skus) { iabResult, inventory ->
+                    result.success(
+                        mapOf(
+                            "result" to gson.toJson(iabResult, IabResult::class.java),
+                            "inventory" to gson.toJson(inventory, Inventory::class.java)
+                        )
+                    )
                 }
             }
             "dispose" -> {
@@ -105,9 +99,7 @@ class MyketPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
             "subscriptionsSupported" -> {
                 result.success(mHelper?.subscriptionsSupported())
             }
-            else -> {
-                result.notImplemented()
-            }
+            else -> result.notImplemented()
         }
     }
 
@@ -117,15 +109,19 @@ class MyketPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
         mHelper = null
     }
 
-    override fun onDetachedFromActivity() {
-        activity = null
-    }
-
-    override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {}
-
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {
         activity = binding.activity
     }
 
-    override fun onDetachedFromActivityForConfigChanges() {}
+    override fun onDetachedFromActivity() {
+        activity = null
+    }
+
+    override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
+        activity = binding.activity
+    }
+
+    override fun onDetachedFromActivityForConfigChanges() {
+        activity = null
+    }
 }
